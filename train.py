@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Training script for the GPT model, optimized for Apple M3 Max.
 Includes mixed precision training and efficient data loading.
@@ -268,9 +269,64 @@ class Trainer:
         self.model.train()
 
 
+def load_training_data(file_path: str) -> str:
+    """
+    Load training data from a text file.
+    
+    Args:
+        file_path: Path to the training data file
+        
+    Returns:
+        The text content of the file
+        
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        IOError: If there's an error reading the file
+    """
+    print(f"Loading data from {file_path}...")
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        print(f"Data loaded successfully. ({len(text):,} characters)")
+        return text
+    except FileNotFoundError:
+        print(f"Error: File {file_path} not found.")
+        raise
+    except IOError as e:
+        print(f"Error reading file {file_path}: {e}")
+        raise
+
+
+def create_datasets_and_model(args, tokenizer, text):
+    """Create datasets and model based on arguments."""
+    # Split data
+    n = len(text)
+    split_idx = int(n * (1 - args.val_split))
+    train_text = text[:split_idx]
+    val_text = text[split_idx:]
+    
+    # Create datasets
+    train_dataset = TextDataset(train_text, tokenizer, args.block_size)
+    val_dataset = TextDataset(val_text, tokenizer, args.block_size) if val_text else None
+    
+    # Create model Object
+    model = GPTModel(
+        vocab_size=tokenizer.vocab_size,
+        d_model=args.d_model,
+        n_heads=args.n_heads,
+        n_layers=args.n_layers,
+        max_seq_len=args.block_size,
+        d_ff=args.d_model * 4,
+        dropout=0.1
+    )
+    
+    return train_dataset, val_dataset, model
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train a GPT model on text data")
-    parser.add_argument('--data', type=str, default='data/input.txt', help='Path to training data')
+    parser.add_argument('--data', type=str, default='data/sample.txt')
+    
     parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
@@ -283,35 +339,15 @@ def main():
     args = parser.parse_args()
     
     # Load data
-    print(f"Loading data from {args.data}...")
-    with open(args.data, 'r', encoding='utf-8') as f:
-        text = f.read()
+    text = load_training_data(args.data)
     
     # Create tokenizer
-    tokenizer = CharTokenizer()
+    tokenizer = CharTokenizer() # jumps to CharTokenizer class in tokenize.py
     tokenizer.build_vocab(text)
     tokenizer.save('checkpoints/tokenizer.json')
     
-    # Split data
-    n = len(text)
-    split_idx = int(n * (1 - args.val_split))
-    train_text = text[:split_idx]
-    val_text = text[split_idx:]
-    
-    # Create datasets
-    train_dataset = TextDataset(train_text, tokenizer, args.block_size)
-    val_dataset = TextDataset(val_text, tokenizer, args.block_size) if val_text else None
-    
-    # Create model
-    model = GPTModel(
-        vocab_size=tokenizer.vocab_size,
-        d_model=args.d_model,
-        n_heads=args.n_heads,
-        n_layers=args.n_layers,
-        max_seq_len=args.block_size,
-        d_ff=args.d_model * 4,
-        dropout=0.1
-    )
+    # Create datasets and model
+    train_dataset, val_dataset, model = create_datasets_and_model(args, tokenizer, text)
     
     # Create trainer
     trainer = Trainer(
